@@ -14,8 +14,9 @@ import torch.nn.functional as F
 from torch_scatter import scatter_add
 from torch_geometric.nn.inits import glorot, zeros
 
-NUM_NODE_TYPE = 18 # version 8.2
-NUM_EDGE_TYPE = 2 # neighbor, distant, self
+NUM_NODE_TYPE = 18  # version 8.2
+NUM_EDGE_TYPE = 2  # neighbor, distant, self
+
 
 class GINConv(MessagePassing):
     """
@@ -23,21 +24,21 @@ class GINConv(MessagePassing):
     Args:
         emb_dim (int): dimensionality of embeddings for nodes and edges.
         embed_input (bool): whether to embed input or not. 
-        
+
     See https://arxiv.org/abs/1810.00826
     """
+
     def __init__(self, emb_dim, aggr="add"):
         super(GINConv, self).__init__()
-        #multi-layer perceptron
+        # multi-layer perceptron
         self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(emb_dim, 2*emb_dim), 
-            torch.nn.ReLU(), 
+            torch.nn.Linear(emb_dim, 2*emb_dim),
+            torch.nn.ReLU(),
             torch.nn.Linear(2*emb_dim, emb_dim))
         self.edge_embedding = torch.nn.Embedding(NUM_EDGE_TYPE, emb_dim)
 
         torch.nn.init.xavier_uniform_(self.edge_embedding.weight.data)
         self.aggr = aggr
-
 
     def forward(self, x, edge_index, edge_attr):
         # add self loops
@@ -49,21 +50,19 @@ class GINConv(MessagePassing):
         # self_loop_attr = self_loop_attr.to(edge_attr.device).to(edge_attr.dtype)
         # edge_attr = torch.cat((edge_attr, self_loop_attr), dim=0)
 
-        edge_embeddings = self.edge_embedding(edge_attr[:, 0].long()) # Pair distance not used
+        edge_embeddings = self.edge_embedding(
+            edge_attr[:, 0].long())  # Pair distance not used
         return self.propagate(edge_index, x=x, edge_attr=edge_embeddings)
-
 
     def message(self, x_j, edge_attr):
         return x_j + edge_attr
-
 
     def update(self, aggr_out):
         return self.mlp(aggr_out)
 
 
-
 class GCNConv(MessagePassing):
-    def __init__(self, emb_dim, aggr = "add"):
+    def __init__(self, emb_dim, aggr="add"):
         super(GCNConv, self).__init__()
 
         self.emb_dim = emb_dim
@@ -73,10 +72,9 @@ class GCNConv(MessagePassing):
         torch.nn.init.xavier_uniform_(self.edge_embedding.weight.data)
         self.aggr = aggr
 
-
     def norm(self, edge_index, num_nodes, dtype):
-        ### assuming that self-loops have been already added in edge_index
-        edge_weight = torch.ones((edge_index.size(1),), 
+        # assuming that self-loops have been already added in edge_index
+        edge_weight = torch.ones((edge_index.size(1),),
                                  dtype=dtype,
                                  device=edge_index.device)
         row, col = edge_index
@@ -86,7 +84,6 @@ class GCNConv(MessagePassing):
 
         return deg_inv_sqrt[row] * edge_weight * deg_inv_sqrt[col]
 
-
     def forward(self, x, edge_index, edge_attr):
         # add self loops
         edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
@@ -94,7 +91,8 @@ class GCNConv(MessagePassing):
         # add features corresponding to self-loop edges.
         self_loop_attr = torch.zeros(x.size(0), 2)
         self_loop_attr[:, 0] = NUM_EDGE_TYPE - 1
-        self_loop_attr = self_loop_attr.to(edge_attr.device).to(edge_attr.dtype)
+        self_loop_attr = self_loop_attr.to(
+            edge_attr.device).to(edge_attr.dtype)
         edge_attr = torch.cat((edge_attr, self_loop_attr), dim=0)
 
         edge_embeddings = self.edge_embedding(edge_attr[:, 0].long())
@@ -102,14 +100,12 @@ class GCNConv(MessagePassing):
         x = self.linear(x)
         return self.propagate(edge_index, x=x, edge_attr=edge_embeddings, norm=norm)
 
-
     def message(self, x_j, edge_attr, norm):
         return norm.view(-1, 1) * (x_j + edge_attr)
 
 
-
 class GATConv(MessagePassing):
-    def __init__(self, emb_dim, heads=2, negative_slope=0.2, aggr = "add"):
+    def __init__(self, emb_dim, heads=2, negative_slope=0.2, aggr="add"):
         super(GATConv, self).__init__()
 
         self.aggr = aggr
@@ -122,15 +118,14 @@ class GATConv(MessagePassing):
         self.att = torch.nn.Parameter(torch.Tensor(1, heads, 2 * emb_dim))
         self.bias = torch.nn.Parameter(torch.Tensor(emb_dim))
 
-        self.edge_embedding = torch.nn.Embedding(NUM_EDGE_TYPE, heads * emb_dim)
+        self.edge_embedding = torch.nn.Embedding(
+            NUM_EDGE_TYPE, heads * emb_dim)
         torch.nn.init.xavier_uniform_(self.edge_embedding.weight.data)
         self.reset_parameters()
-
 
     def reset_parameters(self):
         glorot(self.att)
         zeros(self.bias)
-
 
     def forward(self, x, edge_index, edge_attr):
         # add self loops
@@ -139,13 +134,13 @@ class GATConv(MessagePassing):
         # add features corresponding to self-loop edges.
         self_loop_attr = torch.zeros(x.size(0), 2)
         self_loop_attr[:, 0] = NUM_EDGE_TYPE - 1
-        self_loop_attr = self_loop_attr.to(edge_attr.device).to(edge_attr.dtype)
+        self_loop_attr = self_loop_attr.to(
+            edge_attr.device).to(edge_attr.dtype)
         edge_attr = torch.cat((edge_attr, self_loop_attr), dim=0)
 
         edge_embeddings = self.edge_embedding(edge_attr[:, 0].long())
         x = self.weight_linear(x)
         return self.propagate(edge_index, x=x, edge_attr=edge_embeddings)
-
 
     def message(self, edge_index, x_i, x_j, edge_attr):
         x_i = x_i.view(-1, self.heads, self.emb_dim)
@@ -160,7 +155,6 @@ class GATConv(MessagePassing):
 
         return (x_j * alpha.view(-1, self.heads, 1)).view(-1, self.heads * self.emb_dim)
 
-
     def update(self, aggr_out):
         aggr_out = aggr_out.view(-1, self.heads, self.emb_dim)
         aggr_out = aggr_out.mean(dim=1)
@@ -168,9 +162,8 @@ class GATConv(MessagePassing):
         return aggr_out
 
 
-
 class GraphSAGEConv(MessagePassing):
-    def __init__(self, emb_dim, aggr = "mean"):
+    def __init__(self, emb_dim, aggr="mean"):
         super(GraphSAGEConv, self).__init__()
 
         self.emb_dim = emb_dim
@@ -180,7 +173,6 @@ class GraphSAGEConv(MessagePassing):
         torch.nn.init.xavier_uniform_(self.edge_embedding.weight.data)
         self.aggr = aggr
 
-
     def forward(self, x, edge_index, edge_attr):
         # add self loops
         edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
@@ -188,26 +180,24 @@ class GraphSAGEConv(MessagePassing):
         # add features corresponding to self-loop edges.
         self_loop_attr = torch.zeros(x.size(0), 2)
         self_loop_attr[:, 0] = NUM_EDGE_TYPE - 1
-        self_loop_attr = self_loop_attr.to(edge_attr.device).to(edge_attr.dtype)
+        self_loop_attr = self_loop_attr.to(
+            edge_attr.device).to(edge_attr.dtype)
         edge_attr = torch.cat((edge_attr, self_loop_attr), dim=0)
 
         edge_embeddings = self.edge_embedding(edge_attr[:, 0].long())
         x = self.linear(x)
         return self.propagate(edge_index, x=x, edge_attr=edge_embeddings)
 
-
     def message(self, x_j, edge_attr):
         return x_j + edge_attr
-
 
     def update(self, aggr_out):
         return F.normalize(aggr_out, p=2, dim=-1)
 
 
-
 class GNN(torch.nn.Module):
     """
-    
+
     Args:
         num_layer (int): the number of GNN layers
         num_feat (int): number of features besides node type
@@ -219,13 +209,14 @@ class GNN(torch.nn.Module):
     Output:
         node representations
     """
-    def __init__(self, 
+
+    def __init__(self,
                  num_layer=2,
                  num_node_type=NUM_NODE_TYPE,
                  num_feat=38,
-                 emb_dim=256, 
-                 node_embedding_output="last", 
-                 drop_ratio=0, 
+                 emb_dim=256,
+                 node_embedding_output="last",
+                 drop_ratio=0,
                  gnn_type="gin"):
         super(GNN, self).__init__()
         self.num_layer = num_layer
@@ -241,7 +232,7 @@ class GNN(torch.nn.Module):
         # torch.nn.init.xavier_uniform_(self.x_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.feat_embedding.weight.data)
 
-        ###List of MLPs
+        # List of MLPs
         self.gnns = torch.nn.ModuleList()
         for layer in range(num_layer):
             if gnn_type == "gin":
@@ -253,13 +244,13 @@ class GNN(torch.nn.Module):
             elif gnn_type == "graphsage":
                 self.gnns.append(GraphSAGEConv(emb_dim))
 
-        ###List of batchnorms
+        # List of batchnorms
         self.batch_norms = torch.nn.ModuleList()
         for layer in range(num_layer):
             self.batch_norms.append(torch.nn.BatchNorm1d(emb_dim))
-            
 
-    #def forward(self, x, edge_index, edge_attr):
+    # def forward(self, x, edge_index, edge_attr):
+
     def forward(self, *argv):
         if len(argv) == 3:
             node_feat_mask = None
@@ -284,26 +275,26 @@ class GNN(torch.nn.Module):
             h = self.gnns[layer](h_list[layer], edge_index, edge_attr)
             h = self.batch_norms[layer](h)
             if layer == self.num_layer - 1:
-                #remove relu for the last layer
+                # remove relu for the last layer
                 h = F.dropout(h, self.drop_ratio, training=self.training)
             else:
-                h = F.dropout(F.relu(h), self.drop_ratio, training=self.training)
+                h = F.dropout(F.relu(h), self.drop_ratio,
+                              training=self.training)
             h_list.append(h)
 
-        ### Different implementations of Jk-concat
+        # Different implementations of Jk-concat
         if self.node_embedding_output == "concat":
-            node_representation = torch.cat(h_list, dim = 1)
+            node_representation = torch.cat(h_list, dim=1)
         elif self.node_embedding_output == "last":
             node_representation = h_list[-1]
         elif self.node_embedding_output == "max":
             h_list = [h.unsqueeze_(0) for h in h_list]
-            node_representation = torch.max(torch.cat(h_list, dim = 0), dim = 0)[0]
+            node_representation = torch.max(torch.cat(h_list, dim=0), dim=0)[0]
         elif self.node_embedding_output == "sum":
             h_list = [h.unsqueeze_(0) for h in h_list]
-            node_representation = torch.sum(torch.cat(h_list, dim = 0), dim = 0)[0]
+            node_representation = torch.sum(torch.cat(h_list, dim=0), dim=0)[0]
 
         return node_representation
-
 
 
 class GNN_pred(torch.nn.Module):
@@ -318,21 +309,22 @@ class GNN_pred(torch.nn.Module):
         node_embedding_output (str): last, concat, max or sum.
         graph_pooling (str): sum, mean, max, attention, set2set
         gnn_type: gin, gcn, graphsage, gat
-        
+
     See https://arxiv.org/abs/1810.00826
     JK-net: https://arxiv.org/abs/1806.03536
     """
-    def __init__(self, 
-                 num_layer=2, 
+
+    def __init__(self,
+                 num_layer=2,
                  num_node_type=NUM_NODE_TYPE,
                  num_feat=38,
-                 emb_dim=256, 
+                 emb_dim=256,
                  num_additional_feat=0,
                  num_node_tasks=15,
-                 num_graph_tasks=2, 
-                 node_embedding_output="last", 
-                 drop_ratio=0, 
-                 graph_pooling="mean", 
+                 num_graph_tasks=2,
+                 node_embedding_output="last",
+                 drop_ratio=0,
+                 graph_pooling="mean",
                  gnn_type="gin"):
         super(GNN_pred, self).__init__()
         self.drop_ratio = drop_ratio
@@ -340,15 +332,15 @@ class GNN_pred(torch.nn.Module):
         self.num_node_tasks = num_node_tasks
         self.num_graph_tasks = num_graph_tasks
 
-        self.gnn = GNN(num_layer, 
+        self.gnn = GNN(num_layer,
                        num_node_type,
-                       num_feat, 
-                       emb_dim, 
-                       node_embedding_output=node_embedding_output, 
-                       drop_ratio=drop_ratio, 
+                       num_feat,
+                       emb_dim,
+                       node_embedding_output=node_embedding_output,
+                       drop_ratio=drop_ratio,
                        gnn_type=gnn_type)
 
-        #Different kind of graph pooling
+        # Different kind of graph pooling
         if graph_pooling == "sum":
             self.pool = global_add_pool
         elif graph_pooling == "mean":
@@ -357,29 +349,33 @@ class GNN_pred(torch.nn.Module):
             self.pool = global_max_pool
         elif graph_pooling == "attention":
             if node_embedding_output == "concat":
-                self.pool = GlobalAttention(gate_nn = torch.nn.Linear((self.num_layer + 1) * emb_dim, 1))
+                self.pool = GlobalAttention(gate_nn=torch.nn.Linear(
+                    (self.num_layer + 1) * emb_dim, 1))
             else:
-                self.pool = GlobalAttention(gate_nn = torch.nn.Linear(emb_dim, 1))
+                self.pool = GlobalAttention(
+                    gate_nn=torch.nn.Linear(emb_dim, 1))
         elif graph_pooling[:-1] == "set2set":
             set2set_iter = int(graph_pooling[-1])
             if node_embedding_output == "concat":
-                self.pool = Set2Set((self.num_layer + 1) * emb_dim, set2set_iter)
+                self.pool = Set2Set((self.num_layer + 1)
+                                    * emb_dim, set2set_iter)
             else:
                 self.pool = Set2Set(emb_dim, set2set_iter)
         else:
             raise ValueError("Invalid graph pooling type.")
 
-        #For node and graph predictions
+        # For node and graph predictions
         self.mult = 1
         if graph_pooling[:-1] == "set2set":
             self.mult *= 2
         if node_embedding_output == "concat":
             self.mult *= (self.num_layer + 1)
-            
+
         node_embedding_dim = self.mult * self.emb_dim
         if self.num_graph_tasks > 0:
             self.graph_pred_module = torch.nn.Sequential(
-                torch.nn.Linear(node_embedding_dim + num_additional_feat, node_embedding_dim),
+                torch.nn.Linear(node_embedding_dim +
+                                num_additional_feat, node_embedding_dim),
                 torch.nn.LeakyReLU(),
                 torch.nn.Linear(node_embedding_dim, node_embedding_dim),
                 torch.nn.LeakyReLU(),
@@ -387,41 +383,44 @@ class GNN_pred(torch.nn.Module):
 
         if self.num_node_tasks > 0:
             self.node_pred_module = torch.nn.Sequential(
-                torch.nn.Linear(node_embedding_dim + num_additional_feat, node_embedding_dim),
+                torch.nn.Linear(node_embedding_dim +
+                                num_additional_feat, node_embedding_dim),
                 torch.nn.LeakyReLU(),
                 torch.nn.Linear(node_embedding_dim, node_embedding_dim),
                 torch.nn.LeakyReLU(),
                 torch.nn.Linear(node_embedding_dim, self.num_node_tasks))
 
-
     # def from_pretrained(self, model_file):
     #     #self.gnn = GNN(self.num_layer, self.emb_dim, JK = self.JK, drop_ratio = self.drop_ratio)
     #     self.gnn.load_state_dict(torch.load(model_file))
-
 
     def forward(self, data, node_feat_mask=None, return_node_embedding=False):
         gnn_args = [data.x, data.edge_index, data.edge_attr]
         if not node_feat_mask is None:
             assert node_feat_mask.shape[0] == data.x.shape[0]
             gnn_args.append(node_feat_mask.to(data.x.device))
-        batch = data.batch if 'batch' in data else torch.zeros((len(data.x),)).long().to(data.x.device)
+        batch = data.batch if 'batch' in data else torch.zeros(
+            (len(data.x),)).long().to(data.x.device)
 
         node_representation = self.gnn(*gnn_args)
         if 'additional_feat' in data:
             additional_feat = data.additional_feat[batch]
-            node_representation = torch.cat([node_representation, additional_feat], 1)
-        
+            node_representation = torch.cat(
+                [node_representation, additional_feat], 1)
+
         return_vals = []
         if self.num_node_tasks > 0:
             if 'center_node_index' not in data:
                 node_pred = self.node_pred_module(node_representation)
             else:
-                center_node_index = [data.center_node_index] if isinstance(data.center_node_index, int) else data.center_node_index
+                center_node_index = [data.center_node_index] if isinstance(
+                    data.center_node_index, int) else data.center_node_index
                 center_node_rep = node_representation[center_node_index]
                 node_pred = self.node_pred_module(center_node_rep)
             return_vals.append(node_pred)
         if self.num_graph_tasks > 0:
-            graph_pred = self.graph_pred_module(self.pool(node_representation, batch))
+            graph_pred = self.graph_pred_module(
+                self.pool(node_representation, batch))
             return_vals.append(graph_pred)
         if return_node_embedding:
             return_vals.append(node_representation)
@@ -432,7 +431,7 @@ class BinaryCrossEntropy(torch.nn.Module):
     def __init__(self, **kwargs):
         super(BinaryCrossEntropy, self).__init__(**kwargs)
         self.loss_fn = torch.nn.BCEWithLogitsLoss(reduction='none')
-    
+
     def forward(self, y_pred, y, w):
         return (self.loss_fn(y_pred, y) * w).mean()
 
@@ -442,32 +441,35 @@ class CoxSGDLossFn(torch.nn.Module):
         self.top_n = top_n
         self.regularizer_weight = regularizer_weight
         super(CoxSGDLossFn, self).__init__(**kwargs)
-    
+
     def forward(self, y_pred, length, event):
         assert y_pred.shape[0] == length.shape[0] == event.shape[0]
         n_samples = y_pred.shape[0]
-        pair_mat = (length.reshape((1, -1)) - length.reshape((-1, 1)) > 0) * event.reshape((-1, 1))
-        
+        pair_mat = (length.reshape((1, -1)) -
+                    length.reshape((-1, 1)) > 0) * event.reshape((-1, 1))
+
         if self.top_n > 0:
             p_with_rand = pair_mat * (1 + torch.rand_like(pair_mat))
-            rand_thr_ind = torch.argsort(p_with_rand, axis=1)[:, -(self.top_n+1)]
-            rand_thr = p_with_rand[(torch.arange(n_samples), rand_thr_ind)].reshape((-1, 1))
-            
+            rand_thr_ind = torch.argsort(p_with_rand, axis=1)[
+                :, -(self.top_n+1)]
+            rand_thr = p_with_rand[(torch.arange(
+                n_samples), rand_thr_ind)].reshape((-1, 1))
+
             pair_mat = pair_mat * (p_with_rand > rand_thr)
-        
+
         valid_sample_is = torch.nonzero(pair_mat.sum(1)).flatten()
         pair_mat[(valid_sample_is, valid_sample_is)] = 1
-        
-            
+
         score_diff = (y_pred.reshape((1, -1)) - y_pred.reshape((-1, 1)))
-        score_diff_row_max = torch.max(score_diff, axis=1, keepdims=True).values
+        score_diff_row_max = torch.max(
+            score_diff, axis=1, keepdims=True).values
         loss = (torch.exp(score_diff - score_diff_row_max) * pair_mat).sum(1)
-        loss = (score_diff_row_max[:, 0][valid_sample_is] + torch.log(loss[valid_sample_is])).sum()
-        
+        loss = (score_diff_row_max[:, 0][valid_sample_is] +
+                torch.log(loss[valid_sample_is])).sum()
+
         regularizer = torch.abs(pair_mat.sum(0) * y_pred.flatten()).sum()
         loss += self.regularizer_weight*regularizer
         return loss
-
 
 
 class MLP_pred(object):
@@ -477,9 +479,9 @@ class MLP_pred(object):
                  n_hidden=256,
                  n_tasks=None,
                  gpu=False,
-                 task='classification', # classification or cox
-                 balanced=True, # used for classification loss
-                 top_n=0, # used for cox regression loss
+                 task='classification',  # classification or cox
+                 balanced=True,  # used for classification loss
+                 top_n=0,  # used for cox regression loss
                  regularizer_weight=0.005,
                  **kwargs):
 
@@ -493,7 +495,6 @@ class MLP_pred(object):
         self.top_n = top_n
         self.regularizer_weight = regularizer_weight
 
-
     def build_model(self):
         assert not self.n_feat is None
         assert not self.n_tasks is None
@@ -504,10 +505,9 @@ class MLP_pred(object):
         modules.append(torch.nn.LeakyReLU())
         modules.append(torch.nn.Linear(self.n_hidden, self.n_tasks))
         self.model = torch.nn.Sequential(*modules)
-            
+
         if self.gpu:
             self.model = self.model.cuda()
-
 
     def fit(self, X, y, w=None, batch_size=0, n_epochs=200, lr=0.001):
         assert len(X.shape) == 2
@@ -532,10 +532,13 @@ class MLP_pred(object):
         self.model.train()
 
         if self.task == 'classification':
-            pos_weight = (1 - y.mean(0))/y.mean(0) if self.balanced else np.ones((y.shape[1],))
-            self.loss_fn = torch.nn.BCEWithLogitsLoss(torch.from_numpy(pos_weight).float())
+            pos_weight = (1 - y.mean(0)) / \
+                y.mean(0) if self.balanced else np.ones((y.shape[1],))
+            self.loss_fn = torch.nn.BCEWithLogitsLoss(
+                torch.from_numpy(pos_weight).float())
         elif self.task == 'cox':
-            self.loss_fn = CoxSGDLossFn(top_n=self.top_n, regularizer_weight=self.regularizer_weight)
+            self.loss_fn = CoxSGDLossFn(
+                top_n=self.top_n, regularizer_weight=self.regularizer_weight)
         else:
             raise ValueError("Task type unknown")
 
@@ -553,7 +556,6 @@ class MLP_pred(object):
                 loss.backward()
                 optimizer.step()
                 self.model.zero_grad()
-    
 
     def predict_proba(self, X, batch_size=0):
         assert len(X.shape) == 2
@@ -577,15 +579,12 @@ class MLP_pred(object):
         y_pred = 1/(1 + np.exp(-y_pred))
         return np.squeeze(np.stack([1 - y_pred, y_pred], -1))
 
-
     def predict(self, X, **kwargs):
         y_pred = self.predict_proba(X, **kwargs)
         return np.argmax(y_pred, -1)
 
-
     def load(self, path):
         self.model.load_state_dict(torch.load(path))
-
 
     def save(self, path):
         sd = self.model.state_dict()
