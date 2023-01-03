@@ -6,7 +6,7 @@ shows a pipline to obtain node embeddings by training a GNN model.
 The pipline consists of:
 
 - generate networkx graph from raw data
-- generate standard tensor graph networkx graph for GNN
+- generate standard tensor graph for GNN
 - customize standard dataset and dataloader for GNN
 - train a GNN model
 - obtain node embeddings
