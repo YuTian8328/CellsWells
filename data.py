@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import torch_geometric as tg
 import torch
 from torch_geometric.data import Dataset
-from torch_geometric.utils import subgraph
+# from torch_geometric.utils import subgraph
 from torch.utils.data import RandomSampler
 from torch_geometric.loader import DataLoader
 from utils import CHANNEL_MARKERS
